@@ -4,7 +4,7 @@ const mysql = require("mysql2");
 const jwt = require("jsonwebtoken");
 const app = express();
 
-const port = 3000;
+const port = 80;
 
 app.use(bodyParser.json());
 
@@ -12,7 +12,7 @@ const connection = mysql.createConnection({
   host: "localhost",
   user: "root",
   database: "api",
-  password: "abc54321",
+  password: "root",
 });
 
 const JWT_SECRET = "tpiinfo";
@@ -20,10 +20,19 @@ const JWT_REFRESH_SECRET = "tpiinfo";
 const JWT_EXPIRES_IN = "10000d";
 const JWT_REFRESH_EXPIRES_IN = "7d";
 
+// Handle uncaught exceptions and unhandled promise rejections
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught Exception:", err);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("Unhandled Rejection:", reason);
+});
+
 connection.connect((error) => {
   if (error) {
-    console.log("error Conection DB" + error);
-    return;
+    console.error("Error Connecting to DB:", error);
+    process.exit(1); // Exit process if DB connection fails
   } else {
     console.log("Connected to the Database");
   }
@@ -42,10 +51,9 @@ const insertDoctor = (doctorData, connection, callback) => {
     area,
     qualification,
     status,
-    medical,
+    medicalInfo,
   } = doctorData;
 
-  // Correct the variable names in the validation check
   if (!doctorName || !contactNumber) {
     return callback(
       new Error("Required fields 'doctorName' or 'contactNumber' are missing"),
@@ -57,21 +65,24 @@ const insertDoctor = (doctorData, connection, callback) => {
     INSERT INTO api.doctors (doc_id, name, address, contact, area, qualification, status, medical)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `;
-
   connection.query(
     query,
     [
       doc_id,
-      doctorName, // Use 'doctorName' here
+      doctorName,
       address,
-      contactNumber, // Use 'contactNumber' here
+      contactNumber,
       area,
       qualification,
       status,
-      JSON.stringify(medical),
+      JSON.stringify(medicalInfo),
     ],
     (err, results) => {
       if (err) {
+        if (err.code === "ER_DUP_ENTRY") {
+          console.warn("Duplicate Entry Detected:", err.message);
+          return callback(new Error("Duplicate Entry"), null);
+        }
         callback(err, null);
       } else {
         callback(null, results);
@@ -79,226 +90,57 @@ const insertDoctor = (doctorData, connection, callback) => {
     }
   );
 };
+
 app.post("/api/doctors", (req, res) => {
   const doctorDataArray = Array.isArray(req.body) ? req.body : [req.body];
-  console.log([req.body]);
-
   let successCount = 0;
-  let errorOccurred = false;
+  let errorCount = 0;
 
-  const connection = mysql.createConnection({
-    host: "localhost",
-    user: "root",
-    database: "api",
-    password: "abc54321",
-  });
-
-  connection.connect((err) => {
-    if (err) {
-      console.error("Error connecting to the database:", err);
-      return res
-        .status(500)
-        .json({ message: "Database connection error", error: err });
-    }
-
-    doctorDataArray.forEach((doctorData, index) => {
-      insertDoctor(doctorData, connection, (err, result) => {
-        if (err) {
-          errorOccurred = true;
-          console.error("Error inserting doctor:", err);
-          return res
-            .status(500)
-            .json({ message: "Error inserting doctor", error: err });
-        } else {
-          successCount += 1;
-        }
-
-        if (successCount === doctorDataArray.length && !errorOccurred) {
-          res.status(200).json({
-            message: `${successCount} doctor(s) inserted successfully!`,
-            doctorData: result,
-          });
-          connection.end();
-        }
-      });
-    });
-  });
-});
-
-const insertVisit = (visitData, connection, callback) => {
-  const {
-    employee_code,
-    doctor_id,
-    product_ids,
-    town_visited,
-    area_worked,
-    comment,
-    remark,
-    working_with,
-  } = visitData;
-
-  if (
-    !employee_code ||
-    !doctor_id ||
-    !product_ids ||
-    !Array.isArray(product_ids) ||
-    !town_visited ||
-    !area_worked
-  ) {
-    return callback(new Error("Required fields are missing or invalid"), null);
-  }
-
-  // First, check if the employee_code exists in the employees table
-  const checkEmployeeQuery = `SELECT employee_code FROM api.employees WHERE employee_code = ?`;
-
-  connection.query(checkEmployeeQuery, [employee_code], (err, results) => {
-    if (err) {
-      return callback(err, null); // Return if there's an error querying the employees table
-    }
-
-    // If no employee with this code is found, return an error
-    if (results.length === 0) {
-      return callback(
-        new Error(`Employee with code ${employee_code} does not exist`),
-        null
-      );
-    }
-
-    // Next, check if the doctor_id exists in the doctors table
-    const checkDoctorQuery = `SELECT doc_id FROM api.doctors WHERE doc_id = ?`;
-    console.log(checkDoctorQuery);
-
-    connection.query(checkDoctorQuery, [doctor_id], (err, results) => {
+  doctorDataArray.forEach((doctorData, index) => {
+    insertDoctor(doctorData, connection, (err, result) => {
       if (err) {
-        return callback(err, null); // Return if there's an error querying the doctors table
+        errorCount++;
+        console.error(`Error inserting doctor at index ${index}:`, err.message);
+      } else {
+        successCount++;
       }
 
-      // If no doctor with this id is found, return an error
-      if (results.length === 0) {
-        return callback(
-          new Error(`Doctor with ID ${doctor_id} does not exist`),
-          null
-        );
+      if (index === doctorDataArray.length - 1) {
+        res.status(200).json({
+          message: `${successCount} doctor(s) inserted, ${errorCount} failed`,
+        });
       }
-
-      // If both the employee and doctor exist, proceed to insert the visit
-      const productIdsJson = JSON.stringify(product_ids);
-
-      const query = `
-        INSERT INTO api.visits (
-          employee_code,
-          doctor_id,
-          product_ids,
-          town_visited,
-          area_worked,
-          comment,
-          remark,
-          working_with
-        ) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?);
-      `;
-      console.log('Printing Query');
-      console.log(query)
-
-      connection.query(
-        query,
-        [
-          employee_code,
-          doctor_id,
-          productIdsJson,
-          town_visited,
-          area_worked,
-          comment || null,
-          remark || null,
-          working_with || null,
-        ],
-        (err, results) => {
-          if (err) {
-            callback(err, null);
-          } else {
-            callback(null, results);
-          }
-        }
-      );
-    });
-  });
-};
-
-app.post("/api/visits", (req, res) => {
-
-
-
-  const visitDataArray = Array.isArray(req.body) ? req.body : [req.body];
-
-  console.log([req.body]);
-
-  let successCount = 0;
-  let errorOccurred = false;
-
-  const connection = mysql.createConnection({
-    host: "localhost",
-    user: "root",
-    database: "api",
-    password: "abc54321",
-  });
-
-  connection.connect((err) => {
-    if (err) {
-      console.log("Error connecting to the database:", err);
-      return res
-        .status(500)
-        .json({ message: "Database connection error", error: err });
-    }
-
-    visitDataArray.forEach((visitData) => {
-      insertVisit(visitData, connection, (err, result) => {
-        if (err) {
-          errorOccurred = true;
-          console.log("Error inserting visit:", err);
-          return res
-            .status(500)
-            .json({ message: "Error inserting visit", error: err.message });
-        } else {
-          successCount += 1;
-        }
-
-        // If all visits are successfully inserted, respond
-        if (successCount === visitDataArray.length && !errorOccurred) {
-          res.status(200).json({
-            message: `${successCount} visit(s) added successfully!`,
-            visitData: result,
-          });
-          connection.end();
-        }
-      });
     });
   });
 });
 
-app.post("/api/employee", (request, response) => {
-  const { name, employeeCode, designation, headquarter } = request.body;
+app.post("/api/employee", (req, res) => {
+  const { name, employeeCode, designation, headquarter } = req.body;
 
-  // Check if all required fields are provided
   if (!name || !employeeCode || !designation || !headquarter) {
-    return response.send("Not Getting All Fields");
+    return res.status(400).json({ message: "Missing required fields" });
   }
 
-  const query = `insert into api.employees(name,employee_code,designation,headquarters) VALUES (?,?,?,?);`;
+  const query = `INSERT INTO api.employees (name, employee_code, designation, headquarters) VALUES (?, ?, ?, ?)`;
   connection.query(
     query,
     [name, employeeCode, designation, headquarter],
     (error, result) => {
       if (error) {
-        console.log("Error while Inserting Data " + error);
-        return response.json({ error: "Insertion Error" });
+        if (error.code === "ER_DUP_ENTRY") {
+          console.warn("Duplicate Entry Detected:", error.message);
+          return res.status(400).json({ message: "Duplicate employeeCode" });
+        }
+        console.error("Error inserting employee:", error.message);
+        return res.status(500).json({ message: "Database error" });
       }
 
       const token = jwt.sign({ id: result.insertId }, JWT_SECRET, {
         expiresIn: JWT_EXPIRES_IN,
       });
 
-      return response.json({
-        message: "Employee Added",
+      res.status(201).json({
+        message: "Employee added",
         data: {
           id: result.insertId,
           name,
@@ -306,34 +148,25 @@ app.post("/api/employee", (request, response) => {
           designation,
           headquarter,
         },
-        token: token,
+        token,
       });
     }
   );
 });
 
+// Example of error handling in other routes
 app.get("/api/doctors", (req, res) => {
   const query = "SELECT * FROM api.doctors;";
   connection.query(query, (err, results) => {
     if (err) {
-      console.error("Error fetching data:", err.message);
-      return res.status(500).json({ error: "Database error" });
+      console.error("Error fetching doctors:", err.message);
+      return res.status(500).json({ message: "Database error" });
     }
     res.status(200).json(results);
   });
 });
 
-app.get("/api/productlist", (req, res) => {
-  const query = "SELECT * FROM api.productList;";
-  connection.query(query, (error, result) => {
-    if (error) {
-      console.log("Error while fetching data", error);
-      return res.json({ error: "Database Error" });
-    }
-    res.json(result);
-  });
-});
-
-app.listen(port, (req, res) => {
-  console.log("Server Running on port " + port);
+// Start the server
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
 });
