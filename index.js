@@ -3,7 +3,7 @@ const bodyParser = require("body-parser");
 const mysql = require("mysql2");
 const jwt = require("jsonwebtoken");
 const app = express();
-
+const moment = require("moment");
 // Port configuration
 const port = 80;
 
@@ -186,22 +186,31 @@ app.post("/api/visits", (req, res) => {
       comment,
       remark,
       working_with,
+      dateTime,
     } = visitData;
 
+    // Validation checks
     if (
       !employee_code ||
       !doctor_id ||
       !product_ids ||
       !Array.isArray(product_ids) ||
-      !town_visited ||
-      !area_worked
+      !area_worked ||
+      !dateTime
     ) {
       errorCount++;
       console.error(`Validation failed for visit at index ${index}`);
       return;
     }
 
+    // Convert product_ids to JSON format
     const productIdsJson = JSON.stringify(product_ids);
+
+    // Convert dateTime string to MySQL DATETIME format using moment
+    const formattedDateTime = moment(dateTime, "MM/DD/YYYY, h:mm:ss A").format(
+      "YYYY-MM-DD HH:mm:ss"
+    );
+
     const query = `
       INSERT INTO api.visits (
         employee_code,
@@ -211,9 +220,10 @@ app.post("/api/visits", (req, res) => {
         area_worked,
         comment,
         remark,
-        working_with
+        working_with,
+        visit_date
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     connection.query(
@@ -227,6 +237,7 @@ app.post("/api/visits", (req, res) => {
         comment || null,
         remark || null,
         working_with || null,
+        formattedDateTime, // Insert the formatted dateTime
       ],
       (err) => {
         if (err) {
