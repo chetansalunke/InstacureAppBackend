@@ -81,18 +81,12 @@ app.post("/api/doctors", (req, res) => {
       qualification,
       status,
       medicalInfo,
+      employeeCode,
     } = doctorData;
 
-    // Validation
-    if (!doctorName || !contactNumber) {
-      errorCount++;
-      console.error(`Validation failed for doctor at index ${index}`);
-      return;
-    }
-
     const query = `
-      INSERT INTO api.doctors (doc_id, name, address, contact, area, qualification, status, medical)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO api.doctors (doc_id, name, address, contact, area, qualification, status, medical,employee_code)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?,?)
     `;
 
     connection.query(
@@ -106,6 +100,7 @@ app.post("/api/doctors", (req, res) => {
         qualification,
         status,
         JSON.stringify(medicalInfo || {}),
+        employeeCode,
       ],
       (err) => {
         if (err) {
@@ -188,20 +183,6 @@ app.post("/api/visits", (req, res) => {
       working_with,
       dateTime,
     } = visitData;
-
-    // Validation checks
-    if (
-      !employee_code ||
-      !doctor_id ||
-      !product_ids ||
-      !Array.isArray(product_ids) ||
-      !area_worked ||
-      !dateTime
-    ) {
-      errorCount++;
-      console.error(`Validation failed for visit at index ${index}`);
-      return;
-    }
 
     // Convert product_ids to JSON format
     const productIdsJson = JSON.stringify(product_ids);
