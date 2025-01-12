@@ -188,7 +188,7 @@ app.post("/api/visits", (req, res) => {
     const productIdsJson = JSON.stringify(product_ids);
 
     // Convert dateTime string to MySQL DATETIME format using moment
-    const formattedDateTime = moment(dateTime, "MM/DD/YYYY, h:mm:ss A").format(
+    const formattedDateTime = moment(dateTime, "DD/MM/YYYY, h:mm:ss A").format(
       "YYYY-MM-DD HH:mm:ss"
     );
 
